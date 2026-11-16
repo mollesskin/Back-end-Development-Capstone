@@ -9,6 +9,10 @@ from django.contrib.auth.hashers import make_password
 from concert.forms import LoginForm, SignUpForm
 from concert.models import Concert, ConcertAttending
 import requests as req
+import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # Create your views here.
@@ -58,31 +62,30 @@ def index(request):
     return render(request, "index.html")
 
 
-def songs(request):
-    songs = [
-        {
-            "id": 1,
-            "title": "duis faucibus accumsan odio curabitur convallis",
-            "lyrics": "Morbi non lectus. Aliquam sit amet diam in magna bibendum imperdiet. Nullam orci pede, venenatis non, sodales sed, tincidunt eu, felis."
-        }
-    ]
+def _service_page(request, variable, path, key, template, context_key):
+    base_url = os.environ.get(variable, "").rstrip("/")
+    if not base_url:
+        return HttpResponse("This service is not configured yet.", status=503)
+    try:
+        response = req.get(base_url + path, timeout=10)
+        response.raise_for_status()
+        payload = response.json()
+        items = payload.get(key) if key and isinstance(payload, dict) else payload
+        if not isinstance(items, list) or not all(isinstance(x, dict) for x in items):
+            raise ValueError("Invalid service response")
+    except (req.RequestException, ValueError):
+        logger.warning("Unable to load %s", context_key)
+        return HttpResponse("Service temporarily unavailable. Please try again later.", status=503)
+    return render(request, template, {context_key: items})
 
-    return render(request, "songs.html", {"songs": songs})
+
+def songs(request):
+    return _service_page(request, "SONGS_API_URL", "/song", "songs", "songs.html", "songs")
 
 
 def photos(request):
-    photos = [
-        {
-            "id": 1,
-            "pic_url": "http://dummyimage.com/136x100.png/5fa2dd/ffffff",
-            "event_country": "United States",
-            "event_state": "District of Columbia",
-            "event_city": "Washington",
-            "event_date": "11/16/2022"
-        }
-    ]
+    return _service_page(request, "PICTURES_API_URL", "/picture", None, "photos.html", "photos")
 
-    return render(request, "photos.html", {"photos": photos})
 
 def login_view(request):
     if request.method == "POST":
